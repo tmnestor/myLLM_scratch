@@ -44,28 +44,6 @@ pip install -r requirements.txt
 
 ## Usage
 
-Basic usage with the high-level encoder:
-
-```python
-from model import MiniLML3Encoder
-from tokenizer import MiniLMTokenizer
-
-# Initialize
-encoder = MiniLML3Encoder()
-tokenizer = MiniLMTokenizer(max_length=128)
-
-# Example sentences
-sentences = [
-    "This is an example sentence",
-    "Another sentence for embedding"
-]
-
-# Generate embeddings
-embeddings = encoder.encode(sentences, tokenizer=tokenizer)
-```
-
-Advanced usage with custom implementation:
-
 ```python
 from mini_lm_model import SentenceTransformer
 from tokenizer import MiniLMTokenizer
