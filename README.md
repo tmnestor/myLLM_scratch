@@ -29,7 +29,6 @@ numpy>=1.19.0
 - `tokenizer.py` - Wrapper for HuggingFace tokenizer
 - `model_loader.py` - Utilities for loading pretrained weights
 - `usage_example.py` - Basic usage example
-- `usage_example2.py` - Advanced usage with custom implementation
 
 ## Environment Setup
 
