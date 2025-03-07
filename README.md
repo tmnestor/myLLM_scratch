@@ -3,7 +3,7 @@
 A PyTorch implementation of the MiniLM transformer model for generating sentence embeddings, supporting multiple model variants including:
 
 - `paraphrase-MiniLM-L3-v2`
-- `all-MiniLM-L6-v2`
+- `all-MiniLM-L6-v2` (default)
 - `paraphrase-MiniLM-L6-v2`
 - `all-MiniLM-L12-v2`
 
@@ -14,12 +14,9 @@ This implementation provides efficient sentence embedding generation with custom
 - Custom PyTorch implementation of the MiniLM architecture
 - Support for multiple model variants (L3, L6, and L12)
 - Loading pretrained weights from HuggingFace models
-- Sentence embedding generation with mean pooling
-- Configurable model parameters (layers, attention heads, etc.)
+- Configurable sequence length and model parameters
 - GPU/MPS acceleration with automatic device detection
-- Batched inference support
-- Production-ready with configurable max sequence length
-- Cosine similarity computation between embeddings
+- Robust parameter validation and error checking
 
 ## Requirements
 
@@ -29,93 +26,46 @@ transformers>=4.6.0
 numpy>=1.19.0
 ```
 
-## Architecture Overview
+## Architecture
 
-This implementation consists of several interconnected modules that work together to provide a complete sentence embedding solution:
+```mermaid
+graph TD
+    subgraph "MiniLM Sentence Transformer"
+        A[Tokenizer<br>tokenizer.py] --> B[SentenceTransformer<br>mini_lm_model.py]
+        C[ModelLoader<br>model_loader.py] --> B
+        A --> D[MiniLMModel<br>mini_lm_model.py]
+        B --> D
+        C -.-> D
+        D --> E[Model Components<br>model_components.py]
+        
+        subgraph "Model Components"
+            E1[Embeddings] --> E2[TransformerEncoder]
+            E2 --> E3[TransformerLayers]
+            E3 --> E4[MultiHeadAttention]
+            E3 --> E5[FeedForward]
+        end
+    end
+    
+    User[Text Input] --> A
+    B --> Embeddings[Sentence Embeddings]
+```
 
 ### Core Modules
 
-#### `model_components.py`
+- **model_components.py**: Transformer building blocks (Embeddings, Attention, etc.)
+- **mini_lm_model.py**: Core model implementation (`MiniLMModel`, `SentenceTransformer`)
+- **model_loader.py**: Handles loading pretrained weights from HuggingFace models
+- **tokenizer.py**: Text tokenization and encoding
+- **usage_example.py**: Command-line interface and usage examples
 
-Contains the building blocks of the transformer architecture:
-- `Embeddings`: Combines token, position, and type embeddings with normalization
-- `SelfAttention`: Multi-head self-attention mechanism
-- `AttentionOutput`: Processes attention outputs with dense layer and normalization
-- `TransformerLayer`: Combines attention and feed-forward networks
-- `TransformerEncoder`: Stacks multiple transformer layers
+### Data Flow
 
-#### `mini_lm_model.py`
+1. **Text → Embeddings**:
+   - Text input → Tokenizer → Token IDs & attention mask
+   - Token IDs → Embeddings → Transformer layers → Mean pooling → Normalized sentence embeddings
 
-Implements the main model classes:
-- `MiniLMModel`: Core implementation supporting L3, L6, and L12 variants
-- `SentenceTransformer`: Wrapper providing sentence embedding functionality with mean pooling
-
-#### `model_loader.py`
-
-Handles loading pretrained weights:
-- Maps weights from HuggingFace models to our custom implementation
-- Validates architecture compatibility
-- Provides detailed feedback about weight loading process
-- Supports all model variants
-
-#### `tokenizer.py`
-
-Provides tokenization functionality:
-- Wraps HuggingFace tokenizers for MiniLM models
-- Handles encoding and decoding of text
-- Supports configurable sequence length
-
-
-## Core Modules
-
-This implementation consists of several interconnected modules that work together to provide a complete sentence embedding solution:
-
-### model_components.py
-
-Contains the building blocks of the transformer architecture:
-- `Embeddings`: Combines token, position, and type embeddings with normalization
-- `SelfAttention`: Multi-head self-attention mechanism
-- `AttentionOutput`: Processes attention outputs with dense layer and normalization
-- `TransformerLayer`: Combines attention and feed-forward networks
-- `TransformerEncoder`: Stacks multiple transformer layers
-
-### mini_lm_model.py
-
-Implements the main model classes:
-- `MiniLMModel`: Core implementation supporting L3, L6, and L12 variants
-- `SentenceTransformer`: Wrapper providing sentence embedding functionality with mean pooling
-
-### model_loader.py
-
-Handles loading pretrained weights:
-- Maps weights from HuggingFace models to our custom implementation
-- Validates architecture compatibility
-- Provides detailed feedback about weight loading process
-- Supports all model variants
-
-### tokenizer.py
-
-Provides tokenization functionality:
-- Wraps HuggingFace tokenizers for MiniLM models
-- Handles encoding and decoding of text
-- Supports configurable sequence length
-
-## Module Interaction
-
-1. **Initialization Flow**:
-   - `SentenceTransformer` creates a `MiniLMModel` with appropriate parameters
-   - `MiniLMModel` initializes `Embeddings` and `TransformerEncoder`
-   - `TransformerEncoder` creates the specified number of `TransformerLayer` instances
-
-2. **Weight Loading Flow**:
-   - `load_pretrained_weights` loads pretrained weights from local files
-   - Maps weights from the pretrained model to the custom architecture
-   - Validates shape compatibility and reports any issues
-
-3. **Inference Flow**:
-   - Tokenizer converts text to token IDs and attention masks
-   - `SentenceTransformer` passes these through the model layers
-   - Input embeddings → Transformer layers → Mean pooling → Normalized embeddings
+2. **Weight Loading**:
+   - HuggingFace model → Custom architecture mapping → Parameter validation → Loaded weights
 
 ## Environment Setup
 
@@ -129,7 +79,7 @@ export LLM_MODELS_PATH=/path/to/your/models
 pip install -r requirements.txt
 ```
 
-3. Download the model files from HuggingFace to your LLM_MODELS_PATH directory.
+3. Download model files from HuggingFace to your LLM_MODELS_PATH directory.
 
 ## Usage
 
@@ -139,8 +89,9 @@ pip install -r requirements.txt
 from mini_lm_model import SentenceTransformer
 from tokenizer import MiniLMTokenizer
 from model_loader import load_pretrained_weights
+import torch
 
-# Initialize model with appropriate parameters
+# Initialize with appropriate parameters
 model = SentenceTransformer(num_hidden_layers=6, max_length=64)
 tokenizer = MiniLMTokenizer(model_name="all-MiniLM-L6-v2", max_length=64)
 
@@ -157,52 +108,35 @@ sentences = [
 encoded_input = tokenizer.encode(sentences)
 
 # Move to appropriate device (CUDA, MPS, or CPU)
-import torch
 device = torch.device("cuda" if torch.cuda.is_available() else 
-                      "mps" if torch.backends.mps.is_available() else 
-                      "cpu")
+                     "mps" if torch.backends.mps.is_available() else 
+                     "cpu")
 model.to(device)
 encoded_input = {k: v.to(device) for k, v in encoded_input.items()}
 
 # Generate embeddings
 with torch.no_grad():
     embeddings = model(encoded_input["input_ids"], encoded_input["attention_mask"])
-
-# Use embeddings for similarity, clustering, etc.
 ```
 
 ### Command-Line Usage
 
-The package includes a command-line interface for testing:
-
 ```bash
-# Using the default model (all-MiniLM-L6-v2) with default max_length (64)
+# Default: all-MiniLM-L6-v2, max_length=64
 python usage_example.py
 
-# Using a specific model
-python usage_example.py --model all-MiniLM-L12-v2
-
-# Using a specific model and max length
-python usage_example.py --model paraphrase-MiniLM-L3-v2 --max_length 128
+# Using specific model and max_length
+python usage_example.py --model all-MiniLM-L12-v2 --max_length 128
 ```
 
 ## Model Selection Guide
 
-This implementation supports several MiniLM variants:
-
 | Model | Layers | Hidden Size | Parameters | Best For |
 |-------|--------|-------------|------------|----------|
-| paraphrase-MiniLM-L3-v2 | 3 | 384 | ~22M | Fast inference, low resource usage |
+| paraphrase-MiniLM-L3-v2 | 3 | 384 | ~22M | Fast inference, low resources |
 | all-MiniLM-L6-v2 | 6 | 384 | ~33M | Balanced performance (default) |
 | paraphrase-MiniLM-L6-v2 | 6 | 384 | ~33M | Better paraphrase quality |
 | all-MiniLM-L12-v2 | 12 | 384 | ~55M | Higher quality embeddings |
-
-## Performance Considerations
-
-- Smaller models (L3) provide faster inference with slightly lower quality embeddings
-- Larger models (L12) provide higher quality embeddings at the cost of slower inference
-- Setting an appropriate `max_length` balances quality and speed (default: 64)
-- GPU or MPS acceleration is automatically used when available
 
 ## License
 
