@@ -2,9 +2,22 @@ from transformers import AutoTokenizer, AutoConfig
 import os
 
 class MiniLMTokenizer:
-    """Wrapper around Hugging Face tokenizer for MiniLM models"""
+    """Wrapper around Hugging Face tokenizer for MiniLM models.
+    Supports paraphrase-MiniLM-L3-v2, all-MiniLM-L6-v2, paraphrase-MiniLM-L6-v2, and all-MiniLM-L12-v2."""
     
     def __init__(self, model_name="paraphrase-MiniLM-L3-v2", max_length=128):
+        # Validate parameters
+        supported_models = [
+            "paraphrase-MiniLM-L3-v2",
+            "all-MiniLM-L6-v2", 
+            "paraphrase-MiniLM-L6-v2",
+            "all-MiniLM-L12-v2"
+        ]
+        if model_name not in supported_models:
+            raise ValueError(f"Unsupported model: {model_name}. Must be one of {supported_models}")
+        if max_length <= 0:
+            raise ValueError(f"max_length must be positive, got {max_length}")
+            
         # Always use the environment variable path
         model_path = os.environ.get('LLM_MODELS_PATH')
         if not model_path:
@@ -41,6 +54,16 @@ class MiniLMTokenizer:
         Returns:
             Dictionary with input_ids, attention_mask, and token_type_ids (if applicable)
         """
+        # Validate input
+        if sentences is None:
+            raise ValueError("sentences cannot be None")
+        if not isinstance(sentences, (str, list)):
+            raise ValueError(f"sentences must be a string or list, got {type(sentences)}")
+        if isinstance(sentences, list) and not all(isinstance(s, str) for s in sentences):
+            raise ValueError("All items in sentences list must be strings")
+        if return_tensors not in ["pt", "tf", "np"]:
+            raise ValueError(f"return_tensors must be 'pt', 'tf', or 'np', got {return_tensors}")
+            
         return self.tokenizer(
             sentences,
             padding=padding,

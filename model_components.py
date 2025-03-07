@@ -11,6 +11,19 @@ class Embeddings(nn.Module):
         self, vocab_size, hidden_size, max_position_embeddings=512, type_vocab_size=2, dropout_rate=0.1
     ):
         super().__init__()
+        
+        # Validate parameters
+        if vocab_size <= 0:
+            raise ValueError(f"vocab_size must be positive, got {vocab_size}")
+        if hidden_size <= 0:
+            raise ValueError(f"hidden_size must be positive, got {hidden_size}")
+        if max_position_embeddings <= 0:
+            raise ValueError(f"max_position_embeddings must be positive, got {max_position_embeddings}")
+        if type_vocab_size <= 0:
+            raise ValueError(f"type_vocab_size must be positive, got {type_vocab_size}")
+        if dropout_rate < 0 or dropout_rate >= 1:
+            raise ValueError(f"dropout_rate must be in [0, 1), got {dropout_rate}")
+            
         self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
         self.position_embeddings = nn.Embedding(max_position_embeddings, hidden_size)
         self.token_type_embeddings = nn.Embedding(type_vocab_size, hidden_size)
@@ -177,6 +190,22 @@ class TransformerEncoder(nn.Module):
         dropout_rate=0.1,
     ):
         super().__init__()
+        
+        # Validate parameters
+        supported_layers = [3, 6, 12]
+        if num_hidden_layers not in supported_layers:
+            raise ValueError(f"Unsupported number of layers: {num_hidden_layers}. Must be one of {supported_layers}")
+        if hidden_size <= 0:
+            raise ValueError(f"hidden_size must be positive, got {hidden_size}")
+        if num_attention_heads <= 0:
+            raise ValueError(f"num_attention_heads must be positive, got {num_attention_heads}")
+        if hidden_size % num_attention_heads != 0:
+            raise ValueError(f"hidden_size {hidden_size} must be divisible by num_attention_heads {num_attention_heads}")
+        if intermediate_size <= 0:
+            raise ValueError(f"intermediate_size must be positive, got {intermediate_size}")
+        if dropout_rate < 0 or dropout_rate >= 1:
+            raise ValueError(f"dropout_rate must be in [0, 1), got {dropout_rate}")
+            
         self.layer = nn.ModuleList(
             [
                 TransformerLayer(

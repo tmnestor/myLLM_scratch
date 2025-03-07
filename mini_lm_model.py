@@ -5,13 +5,14 @@ from model_components import Embeddings, TransformerEncoder
 
 
 class MiniLMModel(nn.Module):
-    """MiniLM-L3-v2 model implementation using PyTorch components"""
+    """MiniLM model implementation using PyTorch components.
+    Supports L3, L6, and L12 variants."""
 
     def __init__(
         self,
         vocab_size=30522,
         hidden_size=384,
-        num_hidden_layers=3,
+        num_hidden_layers=3,  # Default is 3 for L3 models, use 6 for L6 models or 12 for L12 models
         num_attention_heads=12,
         intermediate_size=1536,
         dropout_rate=0.1,
@@ -20,6 +21,19 @@ class MiniLMModel(nn.Module):
         max_length=128,
     ):
         super().__init__()
+        
+        # Parameter validation
+        if num_hidden_layers not in [3, 6, 12]:
+            raise ValueError(f"Unsupported number of layers: {num_hidden_layers}. Must be 3, 6, or 12.")
+        if max_length <= 0:
+            raise ValueError(f"max_length must be positive, got {max_length}")
+        if hidden_size <= 0:
+            raise ValueError(f"hidden_size must be positive, got {hidden_size}")
+        if num_attention_heads <= 0:
+            raise ValueError(f"num_attention_heads must be positive, got {num_attention_heads}")
+        if dropout_rate < 0 or dropout_rate >= 1:
+            raise ValueError(f"dropout_rate must be in [0, 1), got {dropout_rate}")
+            
         self.max_length = max_length
         self.embeddings = Embeddings(
             vocab_size, hidden_size, max_position_embeddings, type_vocab_size, dropout_rate
@@ -75,18 +89,27 @@ class MiniLMModel(nn.Module):
 
 
 class SentenceTransformer(nn.Module):
-    """Wrapper class for MiniLM to generate sentence embeddings"""
+    """Wrapper class for MiniLM to generate sentence embeddings.
+    Supports L3, L6, and L12 model variants."""
 
     def __init__(
         self,
         vocab_size=30522,
         hidden_size=384,
-        num_hidden_layers=3,
+        num_hidden_layers=3,  # Default is 3 for L3 models, use 6 for L6 models or 12 for L12 models
         num_attention_heads=12,
         intermediate_size=1536,
         max_length=128,
     ):
         super().__init__()
+        
+        # Parameter validation
+        supported_layers = [3, 6, 12]
+        if num_hidden_layers not in supported_layers:
+            raise ValueError(f"Unsupported number of layers: {num_hidden_layers}. Must be one of {supported_layers}")
+        if max_length <= 0:
+            raise ValueError(f"max_length must be positive, got {max_length}")
+            
         self.model = MiniLMModel(
             vocab_size,
             hidden_size,
@@ -104,6 +127,16 @@ class SentenceTransformer(nn.Module):
         )
 
     def forward(self, input_ids, attention_mask):
+        # Input validation
+        if input_ids is None:
+            raise ValueError("input_ids cannot be None")
+        if attention_mask is None:
+            raise ValueError("attention_mask cannot be None")
+        if input_ids.dim() != 2:
+            raise ValueError(f"input_ids must be 2D tensor, got {input_ids.dim()}D")
+        if attention_mask.shape != input_ids.shape:
+            raise ValueError(f"attention_mask shape {attention_mask.shape} doesn't match input_ids shape {input_ids.shape}")
+            
         outputs = self.model(input_ids, attention_mask)
         sentence_embeddings = self.mean_pooling(outputs, attention_mask)
         sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
