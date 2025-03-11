@@ -1,8 +1,13 @@
 import torch
 import argparse
-from mini_lm_model import SentenceTransformer
-from tokenizer import TransformerTokenizer
-from model_loader import load_pretrained_weights
+import sys
+import os
+
+# Add the parent directory to sys.path to allow importing src as a package
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from src.models import SentenceEncoder, create_minilm_model, create_modernbert_model
+from src.utils import Tokenizer, get_tokenizer_for_model, load_pretrained_weights
 
 
 def parse_arguments():
