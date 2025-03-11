@@ -7,25 +7,31 @@ from model_loader import load_pretrained_weights
 
 def parse_arguments():
     """Parse command line arguments for the application."""
-    parser = argparse.ArgumentParser(description="Test MiniLM implementation with different models")
+    parser = argparse.ArgumentParser(
+        description="Test MiniLM implementation with different models"
+    )
     parser.add_argument(
-        "--model", 
-        type=str, 
+        "--model",
+        type=str,
         default="all-MiniLM-L6-v2",
-        choices=["paraphrase-MiniLM-L3-v2", "all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2", "all-MiniLM-L12-v2"],
-        help="Model to use for embedding generation"
+        choices=[
+            "paraphrase-MiniLM-L3-v2",
+            "all-MiniLM-L6-v2",
+            "paraphrase-MiniLM-L6-v2",
+            "all-MiniLM-L12-v2",
+        ],
+        help="Model to use for embedding generation",
     )
     parser.add_argument(
         "--max_length",
         type=int,
         default=64,
-        help="Maximum sequence length for input tokens"
+        help="Maximum sequence length for input tokens",
     )
     return parser.parse_args()
 
 
 def test_custom_implementation(model_name="all-MiniLM-L6-v2", max_length=64):
-    
     # Determine model parameters based on selected model
     if model_name == "all-MiniLM-L12-v2":
         num_hidden_layers = 12
@@ -33,11 +39,15 @@ def test_custom_implementation(model_name="all-MiniLM-L6-v2", max_length=64):
         num_hidden_layers = 6
     else:  # Default for L3 models
         num_hidden_layers = 3
-    
-    print(f"Using model: {model_name} with {num_hidden_layers} layers and max_length={max_length}")
+
+    print(
+        f"Using model: {model_name} with {num_hidden_layers} layers and max_length={max_length}"
+    )
 
     # Initialize our custom model instance with appropriate layer count
-    base_model = SentenceTransformer(max_length=max_length, num_hidden_layers=num_hidden_layers)
+    base_model = SentenceTransformer(
+        max_length=max_length, num_hidden_layers=num_hidden_layers
+    )
     tokenizer = MiniLMTokenizer(model_name=model_name, max_length=max_length)
 
     # Load pretrained weights, and assign to a new variable for clarity

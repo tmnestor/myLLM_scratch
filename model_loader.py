@@ -1,7 +1,6 @@
-import torch
 import os
 from transformers import AutoModel, AutoConfig
-from mini_lm_model import MiniLMModel, SentenceTransformer
+from mini_lm_model import SentenceTransformer
 
 
 def load_pretrained_weights(custom_model, model_name="paraphrase-MiniLM-L3-v2"):
@@ -22,19 +21,23 @@ def load_pretrained_weights(custom_model, model_name="paraphrase-MiniLM-L3-v2"):
     # Validate input parameters
     supported_models = [
         "paraphrase-MiniLM-L3-v2",
-        "all-MiniLM-L6-v2", 
+        "all-MiniLM-L6-v2",
         "paraphrase-MiniLM-L6-v2",
-        "all-MiniLM-L12-v2"
+        "all-MiniLM-L12-v2",
     ]
     if model_name not in supported_models:
-        raise ValueError(f"Unsupported model: {model_name}. Must be one of {supported_models}")
-        
+        raise ValueError(
+            f"Unsupported model: {model_name}. Must be one of {supported_models}"
+        )
+
     if custom_model is None:
         raise ValueError("custom_model cannot be None")
-        
+
     if not isinstance(custom_model, SentenceTransformer):
-        raise TypeError(f"custom_model must be an instance of SentenceTransformer, got {type(custom_model)}")
-    
+        raise TypeError(
+            f"custom_model must be an instance of SentenceTransformer, got {type(custom_model)}"
+        )
+
     # Get environment variable for model path
     model_path = os.environ.get("LLM_MODELS_PATH")
     if not model_path:
