@@ -1,14 +1,14 @@
 import torch
 import argparse
 from mini_lm_model import SentenceTransformer
-from tokenizer import MiniLMTokenizer
+from tokenizer import TransformerTokenizer
 from model_loader import load_pretrained_weights
 
 
 def parse_arguments():
     """Parse command line arguments for the application."""
     parser = argparse.ArgumentParser(
-        description="Test MiniLM implementation with different models"
+        description="Test transformer model implementations with different models"
     )
     parser.add_argument(
         "--model",
@@ -19,6 +19,7 @@ def parse_arguments():
             "all-MiniLM-L6-v2",
             "paraphrase-MiniLM-L6-v2",
             "all-MiniLM-L12-v2",
+            "modernbert",
         ],
         help="Model to use for embedding generation",
     )
@@ -28,30 +29,71 @@ def parse_arguments():
         default=64,
         help="Maximum sequence length for input tokens",
     )
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["minilm", "modernbert"],
+        help="Model architecture type (if not specified, will be inferred from model name)",
+    )
     return parser.parse_args()
 
 
-def test_custom_implementation(model_name="all-MiniLM-L6-v2", max_length=64):
-    # Determine model parameters based on selected model
-    if model_name == "all-MiniLM-L12-v2":
-        num_hidden_layers = 12
-    elif model_name in ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2"]:
-        num_hidden_layers = 6
-    else:  # Default for L3 models
-        num_hidden_layers = 3
+def test_custom_implementation(model_name="all-MiniLM-L6-v2", max_length=64, model_type=None):
+    # Determine model type if not provided
+    if model_type is None:
+        if "MiniLM" in model_name:
+            model_type = "minilm"
+        elif model_name.lower() == "modernbert":
+            model_type = "modernbert"
+        else:
+            raise ValueError(f"Cannot infer model_type from model_name: {model_name}. Please specify model_type explicitly.")
+    
+    # Determine model parameters based on selected model and model type
+    if model_type.lower() == "minilm":
+        if model_name == "all-MiniLM-L12-v2":
+            num_hidden_layers = 12
+        elif model_name in ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2"]:
+            num_hidden_layers = 6
+        else:  # Default for L3 models
+            num_hidden_layers = 3
+            
+        # Default settings for MiniLM models
+        hidden_size = 384
+        intermediate_size = 1536
+        
+    elif model_type.lower() == "modernbert":
+        # ModernBERT uses different architecture parameters
+        num_hidden_layers = 12  # Standard BERT size
+        hidden_size = 768  # Standard BERT size
+        intermediate_size = 3072  # Standard BERT size
+        # Adjust max_length for ModernBERT if not explicitly set
+        if max_length == 64:  # If using the default
+            max_length = 512  # ModernBERT typically supports longer sequences
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
 
     print(
-        f"Using model: {model_name} with {num_hidden_layers} layers and max_length={max_length}"
+        f"Using {model_type} model: {model_name} with {num_hidden_layers} layers and max_length={max_length}"
     )
 
-    # Initialize our custom model instance with appropriate layer count
+    # Initialize our custom model instance with appropriate configuration
     base_model = SentenceTransformer(
-        max_length=max_length, num_hidden_layers=num_hidden_layers
+        model_type=model_type,
+        hidden_size=hidden_size,
+        num_hidden_layers=num_hidden_layers,
+        intermediate_size=intermediate_size,
+        max_length=max_length
     )
-    tokenizer = MiniLMTokenizer(model_name=model_name, max_length=max_length)
+    
+    # Use the unified tokenizer class for both model types
+    tokenizer = TransformerTokenizer(
+        model_name=model_name, 
+        model_type=model_type,
+        max_length=max_length
+    )
 
     # Load pretrained weights, and assign to a new variable for clarity
-    loaded_model = load_pretrained_weights(base_model, model_name=model_name)
+    loaded_model = load_pretrained_weights(base_model, model_name=model_name, model_type=model_type)
 
     # Then use loaded_model in place of model:
     # Example sentences (including a longer one to demonstrate truncation)
@@ -94,4 +136,8 @@ def test_custom_implementation(model_name="all-MiniLM-L6-v2", max_length=64):
 
 if __name__ == "__main__":
     args = parse_arguments()
-    test_custom_implementation(model_name=args.model, max_length=args.max_length)
+    test_custom_implementation(
+        model_name=args.model, 
+        max_length=args.max_length,
+        model_type=args.model_type
+    )
