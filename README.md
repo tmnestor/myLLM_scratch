@@ -19,14 +19,12 @@ A clean, modular implementation of transformer models for generating sentence em
 MiniLM follows a traditional transformer design with several optimizations for efficiency:
 
 ```mermaid
-graph TD
+graph TB
     Input([Input Tokens]) --> TokenEmbed[Token Embeddings]
     TokenEmbed --> AddPos[Position Embeddings]
     AddPos --> LayerNorm[Layer Normalization]
     LayerNorm --> Encoder[Encoder Blocks]
-    Encoder --> Pooling[Pooling Layer]
-    Pooling --> SentEmbed[Sentence Embeddings]
-
+    
     subgraph EncoderBlock["Encoder Block (x3/6/12)"]
         AttnNorm[Layer Normalization] --> SelfAttention[Multi-Head Self Attention]
         SelfAttention --> AttnDrop[Dropout]
@@ -36,16 +34,27 @@ graph TD
         FFN --> FFNDrop[Dropout]
         FFNDrop --> FFNResid[Residual Connection]
     end
+    
+    Encoder --> EncoderBlock
+    EncoderBlock -.-> EncoderOutput[Output from Last Layer]
+    EncoderOutput --> Pooling[Pooling Layer]
+    Pooling --> SentEmbed[Sentence Embeddings]
 
     subgraph Attention["Multi-Head Self Attention"]
         QKVProj[Separate Q/K/V Projections] --> MHA[Multi-Head Attention]
         MHA --> OutProj[Output Projection]
     end
+    
+    SelfAttention --> Attention
+    Attention -.-> SelfAttention
 
     subgraph FFNetwork["Feed-Forward Network"]
         Linear1[Linear Layer] --> GELU[GELU Activation]
         GELU --> Linear2[Linear Layer]
     end
+    
+    FFN --> FFNetwork
+    FFNetwork -.-> FFN
 ```
 
 **Key Features of MiniLM:**
@@ -63,12 +72,10 @@ graph TD
 ModernBERT incorporates several modern improvements to the transformer architecture:
 
 ```mermaid
-graph TD
+graph TB
     Input([Input Tokens]) --> TokenEmbed[Token Embeddings]
     TokenEmbed --> Encoder[Encoder Blocks]
-    Encoder --> NormPool[Normalized Mean Pooling]
-    NormPool --> SentEmbed[Sentence Embeddings]
-
+    
     subgraph ModernBlock["Encoder Block (x12)"]
         PreLN1[Pre-Layer Normalization] --> RoPEAttn[Rotary Position Attention]
         RoPEAttn --> AttnResid[Residual Connection]
@@ -76,6 +83,11 @@ graph TD
         PreLN2 --> GLU[Gated MLP with GLU]
         GLU --> MLPResid[Residual Connection]
     end
+    
+    Encoder --> ModernBlock
+    ModernBlock -.-> EncoderOutput[Output from Last Layer]
+    EncoderOutput --> NormPool[Normalized Mean Pooling]
+    NormPool --> SentEmbed[Sentence Embeddings]
 
     subgraph RoPEAttention["Rotary Position Attention"]
         QKVProj[Combined QKV Projection] --> Split[Split into Q/K/V]
@@ -83,12 +95,18 @@ graph TD
         ApplyRoPE --> MHA[Multi-Head Attention]
         MHA --> OutProj[Output Projection]
     end
+    
+    RoPEAttn --> RoPEAttention
+    RoPEAttention -.-> RoPEAttn
 
     subgraph GatedMLP["Gated MLP with GLU"]
         InputProj[Input Projection 2x size] --> SplitGLU[Split into Gate/Value]
         SplitGLU --> GatedAct[Gated Activation Function]
         GatedAct --> OutputProj[Output Projection]
     end
+    
+    GLU --> GatedMLP
+    GatedMLP -.-> GLU
 ```
 
 **Key Features of ModernBERT:**
@@ -288,18 +306,25 @@ print(f"Similarity: {similarity.item():.4f}")
 One of the key technical challenges in this project is correctly loading weights from pretrained models into our implementations:
 
 ```mermaid
-graph TD
+graph TB
     PretrainedWeights([Pretrained Weights]) --> CheckArch[Check Architecture Type]
+    
     CheckArch --> MiniLMPath[MiniLM Loader]
     CheckArch --> ModernBERTPath[ModernBERT Loader]
     
-    MiniLMPath --> MapMiniLMWeights[Map Standard Transformer Weights]
-    ModernBERTPath --> MapModernBERTWeights[Map ModernBERT-specific Weights]
+    subgraph MiniLMLoading["MiniLM Loading Flow"]
+        MapMiniLMWeights[Map Standard Transformer Weights] --> LoadMiniLMWeights[Load into Model]
+    end
     
-    MapMiniLMWeights --> LoadMiniLMWeights[Load into Model]
-    MapModernBERTWeights --> LoadRoPEBuffers[Load RoPE Buffers]
-    LoadRoPEBuffers --> LoadQKVWeights[Load Combined QKV]
-    LoadQKVWeights --> LoadGLUWeights[Load GLU Weights]
+    MiniLMPath --> MiniLMLoading
+    
+    subgraph ModernBERTLoading["ModernBERT Loading Flow"]
+        MapModernBERTWeights[Map ModernBERT-specific Weights] --> LoadRoPEBuffers[Load RoPE Buffers]
+        LoadRoPEBuffers --> LoadQKVWeights[Load Combined QKV]
+        LoadQKVWeights --> LoadGLUWeights[Load GLU Weights]
+    end
+    
+    ModernBERTPath --> ModernBERTLoading
     
     LoadMiniLMWeights --> VerifyMapping[Verify All Weights Mapped]
     LoadGLUWeights --> VerifyMapping
