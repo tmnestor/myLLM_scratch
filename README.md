@@ -27,7 +27,7 @@ graph TD
     Encoder --> Pooling[Pooling Layer]
     Pooling --> SentEmbed[Sentence Embeddings]
 
-    subgraph "Encoder Block (x3/6/12)"
+    subgraph EncoderBlock["Encoder Block (x3/6/12)"]
         AttnNorm[Layer Normalization] --> SelfAttention[Multi-Head Self Attention]
         SelfAttention --> AttnDrop[Dropout]
         AttnDrop --> AttnResid[+ Residual Connection]
@@ -37,12 +37,12 @@ graph TD
         FFNDrop --> FFNResid[+ Residual Connection]
     end
 
-    subgraph "Multi-Head Self Attention"
+    subgraph Attention["Multi-Head Self Attention"]
         QKVProj[Separate Q/K/V Projections] --> MHA[Multi-Head Attention]
         MHA --> OutProj[Output Projection]
     end
 
-    subgraph "Feed-Forward Network"
+    subgraph FFNetwork["Feed-Forward Network"]
         Linear1[Linear Layer] --> GELU[GELU Activation]
         GELU --> Linear2[Linear Layer]
     end
@@ -69,7 +69,7 @@ graph TD
     Encoder --> NormPool[Normalized Mean Pooling]
     NormPool --> SentEmbed[Sentence Embeddings]
 
-    subgraph "Encoder Block (x12)"
+    subgraph ModernBlock["Encoder Block (x12)"]
         PreLN1[Pre-Layer Normalization] --> RoPEAttn[Rotary Position Attention]
         RoPEAttn --> AttnResid[+ Residual Connection]
         AttnResid --> PreLN2[Pre-Layer Normalization]
@@ -77,14 +77,14 @@ graph TD
         GLU --> MLPResid[+ Residual Connection]
     end
 
-    subgraph "Rotary Position Attention"
+    subgraph RoPEAttention["Rotary Position Attention"]
         QKVProj[Combined QKV Projection] --> Split[Split into Q/K/V]
         Split --> ApplyRoPE[Apply Rotary Embeddings]
         ApplyRoPE --> MHA[Multi-Head Attention]
         MHA --> OutProj[Output Projection]
     end
 
-    subgraph "Gated MLP with GLU"
+    subgraph GatedMLP["Gated MLP with GLU"]
         InputProj[Input Projection 2x size] --> SplitGLU[Split into Gate/Value]
         SplitGLU --> GatedAct[Gated Activation Function]
         GatedAct --> OutputProj[Output Projection]
@@ -290,22 +290,22 @@ One of the key technical challenges in this project is correctly loading weights
 ```mermaid
 graph TD
     PretrainedWeights([Pretrained Weights]) --> CheckArch[Check Architecture Type]
-    CheckArch --> |MiniLM| MiniLMLoader[MiniLM Loader]
-    CheckArch --> |ModernBERT| ModernBERTLoader[ModernBERT Loader]
+    CheckArch --> MiniLMPath[MiniLM Loader]
+    CheckArch --> ModernBERTPath[ModernBERT Loader]
     
-    MiniLMLoader --> MapMiniLMWeights[Map Standard Transformer Weights]
-    ModernBERTLoader --> MapModernBERTWeights[Map ModernBERT-specific Weights]
+    MiniLMPath --> MapMiniLMWeights[Map Standard Transformer Weights]
+    ModernBERTPath --> MapModernBERTWeights[Map ModernBERT-specific Weights]
     
-    MapMiniLMWeights --> |Simple 1:1 Mapping| LoadMiniLMWeights[Load into Model]
-    MapModernBERTWeights --> |Handle Special Cases| LoadRoPEBuffers[Load RoPE Buffers]
-    LoadRoPEBuffers --> |Handle QKV Format| LoadQKVWeights[Load Combined QKV]
-    LoadQKVWeights --> |Handle GLU| LoadGLUWeights[Load GLU Weights]
+    MapMiniLMWeights --> LoadMiniLMWeights[Load into Model]
+    MapModernBERTWeights --> LoadRoPEBuffers[Load RoPE Buffers]
+    LoadRoPEBuffers --> LoadQKVWeights[Load Combined QKV]
+    LoadQKVWeights --> LoadGLUWeights[Load GLU Weights]
     
     LoadMiniLMWeights --> VerifyMapping[Verify All Weights Mapped]
     LoadGLUWeights --> VerifyMapping
     
-    VerifyMapping --> |100% Parameters Loaded| Success[Successful Load]
-    VerifyMapping --> |Missing Parameters| Error[Loading Error]
+    VerifyMapping --> Success[Successful Load]
+    VerifyMapping --> Error[Loading Error]
 ```
 
 #### MiniLM Weight Loading
