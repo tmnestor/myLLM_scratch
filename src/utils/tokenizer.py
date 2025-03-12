@@ -124,7 +124,7 @@ def get_tokenizer_for_model(model_name, max_length=None):
         path = "all-MiniLM-L12-v2"
         default_length = 128
     elif model_name == "modernbert":
-        path = "modernbert"
+        path = "ModernBERT-base"
         default_length = 512
     else:
         # For direct paths

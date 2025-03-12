@@ -20,8 +20,9 @@ import os
 # Add the parent directory to sys.path to allow importing src as a package
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.models import TransformerModel, SentenceEncoder, create_minilm_model, create_modernbert_model
-from src.utils import Tokenizer, get_tokenizer_for_model, load_pretrained_weights
+from src.models import MiniLMModel, MiniLMForSentenceEmbedding, create_minilm_model
+from src.models import ModernBERTModel, ModernBERTForSentenceEmbedding, create_modernbert_model
+from src.utils import Tokenizer, get_tokenizer_for_model, load_minilm_weights, load_modernbert_weights
 
 
 def parse_arguments():
@@ -116,12 +117,23 @@ class TextClassifier(nn.Module):
         Initialize classifier with encoder and classification head.
         
         Args:
-            encoder (SentenceEncoder): Encoder for generating sentence embeddings
+            encoder (SentenceEncoder or ModernBERTForSentenceEmbedding): Encoder for generating sentence embeddings
             num_classes (int): Number of output classes
         """
         super().__init__()
         self.encoder = encoder
-        self.hidden_dim = encoder.model.hidden_size
+        
+        # Handle different encoder types
+        if hasattr(encoder, 'hidden_size'):
+            # ModernBERT has hidden_size at the top level
+            self.hidden_dim = encoder.hidden_size
+        elif hasattr(encoder, 'model') and hasattr(encoder.model, 'hidden_size'):
+            # SentenceEncoder has model.hidden_size
+            self.hidden_dim = encoder.model.hidden_size
+        else:
+            # Default to 768 if not found (most common embedding size)
+            print("Warning: Could not determine embedding size, defaulting to 768")
+            self.hidden_dim = 768
         
         # Classification head
         self.classifier = nn.Sequential(
@@ -224,7 +236,8 @@ def load_classification_data(data_path):
     val_path = os.path.join(data_path, "val.csv")
     test_path = os.path.join(data_path, "test.csv")
     
-    if not all(os.path.exists(path) for path in [train_path, val_path, test_path]):
+    # Force recreation of sample data to use our expanded dataset
+    if True or not all(os.path.exists(path) for path in [train_path, val_path, test_path]):
         # Create sample data if it doesn't exist
         create_sample_data(data_path)
     
@@ -250,32 +263,103 @@ def create_sample_data(data_path):
     if not os.path.exists(data_path):
         os.makedirs(data_path)
     
-    # Create sample data
+    # Create larger sample data
     texts = [
+        # Business examples (20)
         "Stock markets plunge on fears of global recession",
         "Government announces new economic stimulus package",
+        "Company reports record quarterly profits",
+        "Merger between two major corporations announced",
+        "New CEO appointed to lead struggling retail chain",
+        "Stock price falls following disappointing earnings report",
+        "Investors concerned about market volatility",
+        "Start-up secures multi-million dollar funding round",
+        "Bank introduces new financial services for small businesses",
+        "Economic indicators suggest strong growth ahead",
+        "Trade negotiations continue between major economies",
+        "Company launches IPO on stock exchange",
+        "Retail sales figures show consumer confidence rising",
+        "Central bank announces interest rate decision",
+        "Business leaders meet to discuss economic cooperation",
+        "Financial analysts predict market correction",
+        "New tax regulations impact corporate profits",
+        "Company expands operations to international markets",
+        "Economic forum discusses global financial challenges",
+        "Industry report shows changing consumer trends",
+        
+        # Technology examples (20)
         "Tech company launches revolutionary AI assistant",
         "Latest smartphone sales exceed expectations",
+        "Software update fixes critical security vulnerabilities",
+        "New virtual reality headset hits the market",
+        "Tech giant unveils next generation of processors",
+        "Researchers develop breakthrough in quantum computing",
+        "Electric vehicle manufacturer increases production capacity",
+        "Social media platform introduces new privacy features",
+        "Streaming service adds interactive content options",
+        "Cloud computing provider expands data center network",
+        "Robotics company demonstrates advanced automation system",
+        "Tech startup develops innovative payment solution",
+        "New programming language gains popularity among developers",
+        "Companies invest in 6G wireless technology research",
+        "Artificial intelligence system beats human experts at complex game",
+        "Cybersecurity firm identifies new type of malware attack",
+        "Tech conference showcases future consumer gadgets",
+        "Smartphone manufacturer unveils foldable screen technology",
+        "Voice recognition software improves multilingual capabilities",
+        "Tech industry leaders discuss ethical AI development",
+        
+        # Sports examples (20)
         "The football team won the championship last night",
         "Tennis player reaches semifinals after tough match",
         "Olympic committee announces host city for next games",
         "Basketball player signs record-breaking contract",
+        "Local team advances to national tournament finals",
+        "Athlete breaks long-standing world record",
+        "Coach fired after disappointing season performance",
+        "Injury concerns for star player ahead of crucial match",
+        "Sports league announces rule changes for next season",
+        "Team overcomes deficit to win in dramatic comeback",
+        "Young athlete named rookie of the year",
+        "Historic rivalry renewed in upcoming championship match",
+        "Sports venue undergoes major renovation",
+        "International competition draws record viewership",
+        "Player announces retirement after illustrious career",
+        "Team secures sponsorship deal with major brand",
+        "Athlete speaks out on social issues affecting sports",
+        "Underdog team causes major upset in tournament",
+        "Sports federation investigates allegations of misconduct",
+        "New technology introduced to improve referee decisions",
+        
+        # Science examples (20)
         "Space agency successfully launches new satellite",
         "Scientists discover new species in Amazon rainforest",
         "Research team makes breakthrough in quantum computing",
         "New medical treatment shows promising results in trials",
+        "Astronomers observe unusual celestial phenomenon",
+        "Climate study reveals accelerating environmental changes",
+        "Research team sequences genome of endangered species",
+        "Archeologists uncover ancient civilization artifacts",
+        "Scientists develop new renewable energy technology",
+        "Medical researchers identify potential cancer treatment",
+        "Study reveals insights into human cognitive development",
+        "Marine biologists document previously unknown deep-sea creatures",
+        "Laboratory demonstrates successful nuclear fusion experiment",
+        "Geologists predict seismic activity patterns",
+        "Environmental scientists monitor pollution levels",
+        "Researchers create advanced materials with unique properties",
+        "Neuroscientists map previously unknown brain functions",
+        "Space telescope captures images of distant galaxy formation",
+        "Botanists discover plant species with medicinal properties",
+        "Scientific consortium publishes climate change projections"
     ]
     
-    categories = ["Business", "Business", "Technology", "Technology", 
-                 "Sports", "Sports", "Sports", "Sports",
-                 "Science", "Science", "Science", "Science"]
+    # Create matching categories list
+    categories = (["Business"] * 20 + ["Technology"] * 20 + ["Sports"] * 20 + ["Science"] * 20)
     
-    labels = [
-        categories.index("Business") if cat == "Business" else
-        categories.index("Sports") if cat == "Sports" else
-        categories.index("Science") if cat == "Science" else
-        categories.index("Technology") for cat in categories
-    ]
+    # Convert categories to numeric labels
+    unique_categories = sorted(set(categories))
+    labels = [unique_categories.index(cat) for cat in categories]
     
     # Create DataFrame
     df = pd.DataFrame({
@@ -295,10 +379,10 @@ def create_sample_data(data_path):
     val.to_csv(os.path.join(data_path, "val.csv"), index=False)
     test.to_csv(os.path.join(data_path, "test.csv"), index=False)
     
-    print(f"Created sample data in {data_path}")
+    print(f"Created sample data in {data_path} with {len(df)} examples")
 
 
-def text_classification_example(model, tokenizer, data_path, batch_size=16, epochs=5):
+def text_classification_example(model, tokenizer, data_path, batch_size=16, epochs=10):
     """
     Run a text classification example.
     
@@ -329,8 +413,47 @@ def text_classification_example(model, tokenizer, data_path, batch_size=16, epoc
     print(f"  - Test: {len(test_df)} examples")
     print(f"Classes: {class_names}")
     
-    # Create classifier
+    # First, try eval-only to see how well the pretrained model already performs
+    with torch.no_grad():
+        # Create simple classifier head for evaluation
+        eval_classifier = TextClassifier(model, num_classes)
+        eval_classifier.to(device)
+        eval_classifier.eval()
+        
+        # Create a simple dataset for testing pretrained performance
+        test_examples = [
+            "Stock markets plunge due to economic instability",
+            "Scientists discover new planet in nearby solar system",
+            "Team scores winning goal in championship match",
+            "New smartphone features cutting-edge processor technology"
+        ]
+        test_labels = [0, 1, 2, 3]  # Business, Science, Sports, Technology
+        
+        # Encode and predict
+        encoded = tokenizer.encode(test_examples)
+        encoded = {k: v.to(device) for k, v in encoded.items()}
+        outputs = eval_classifier(encoded['input_ids'], encoded['attention_mask'])
+        _, predictions = torch.max(outputs, 1)
+        
+        # Calculate accuracy
+        correct = (predictions == torch.tensor(test_labels).to(device)).sum().item()
+        print(f"\nPretrained model accuracy on sample examples: {correct/len(test_examples)*100:.2f}%")
+        for i, (text, pred, true) in enumerate(zip(test_examples, predictions, test_labels)):
+            print(f"Example {i+1}: \"{text}\"")
+            print(f"  True class: {class_names[true]}")
+            print(f"  Predicted: {class_names[pred.item()]}")
+    
+    # Create classifier for training with enhanced head
     classifier = TextClassifier(model, num_classes)
+    
+    # Modify the classifier head with the hidden_dim we already determined
+    classifier.classifier = nn.Sequential(
+        nn.Linear(classifier.hidden_dim, 128),
+        nn.ReLU(),
+        nn.Dropout(0.2),
+        nn.Linear(128, num_classes)
+    )
+    
     classifier.to(device)
     
     # Create datasets
@@ -357,9 +480,33 @@ def text_classification_example(model, tokenizer, data_path, batch_size=16, epoc
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
     
-    # Train model
+    # Train model with learning rate scheduler
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(classifier.parameters(), lr=2e-5)
+    
+    # Use a higher learning rate (5x) for ModernBERT fine-tuning
+    base_lr = 1e-4 if isinstance(model, ModernBERTForSentenceEmbedding) else 2e-5
+    print(f"Using base learning rate: {base_lr}")
+    
+    # Group parameters: higher learning rate for classifier layer
+    classifier_parameters = [p for n, p in classifier.named_parameters() if "classifier" in n]
+    encoder_parameters = [p for n, p in classifier.named_parameters() if "classifier" not in n]
+    
+    # Use parameter groups with different learning rates
+    optimizer = optim.AdamW([
+        {'params': encoder_parameters, 'lr': base_lr},
+        {'params': classifier_parameters, 'lr': base_lr * 5}  # 5x learning rate for classifier
+    ], weight_decay=0.001)
+    
+    # Warm up then linear decay scheduler works well for transformer fine-tuning
+    num_warmup_steps = len(train_loader) * 1  # 1 epoch of warmup 
+    num_training_steps = len(train_loader) * epochs
+    
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps)))
+    
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     
     print("Training model...")
     for epoch in range(epochs):
@@ -383,6 +530,7 @@ def text_classification_example(model, tokenizer, data_path, batch_size=16, epoc
             # Backward pass and optimize
             loss.backward()
             optimizer.step()
+            scheduler.step()  # Update lr every batch (common in warm-up schedulers)
             
             # Calculate metrics
             train_loss += loss.item()
@@ -414,6 +562,7 @@ def text_classification_example(model, tokenizer, data_path, batch_size=16, epoc
         print(f"Epoch {epoch+1}/{epochs}")
         print(f"  Train loss: {train_loss/len(train_loader):.4f}, accuracy: {100*train_correct/train_total:.2f}%")
         print(f"  Val loss: {val_loss/len(val_loader):.4f}, accuracy: {100*val_correct/val_total:.2f}%")
+        print(f"  Learning rate: {scheduler.get_last_lr()[0]:.2e}")
     
     # Evaluate on test set
     classifier.eval()
@@ -480,8 +629,8 @@ def main():
         max_length = args.max_length or 128
         
     elif args.model == "modernbert":
-        model = create_modernbert_model(max_length=args.max_length)
-        weights_path = args.weights_path or "modernbert"
+        model = create_modernbert_model(max_length=args.max_length, num_layers=12)
+        weights_path = args.weights_path or "ModernBERT-base"
         max_length = args.max_length or 512
         
     else:
@@ -490,8 +639,24 @@ def main():
     # Get tokenizer
     tokenizer = get_tokenizer_for_model(args.model, max_length=max_length)
     
-    # Load weights
-    model = load_pretrained_weights(model, weights_path)
+    # Load weights using the appropriate loader
+    if "minilm" in args.model.lower():
+        print(f"Using specialized MiniLM loader for {args.model}")
+        model, diagnostics = load_minilm_weights(model, weights_path)
+    elif "modernbert" in args.model.lower():
+        print(f"Using specialized ModernBERT loader for {args.model}")
+        model, diagnostics = load_modernbert_weights(model, weights_path)
+    else:
+        model, diagnostics = load_pretrained_weights(model, weights_path)
+    
+    # Handle loading diagnostics
+    if not diagnostics['success']:
+        print("Warning: Model weights loading had issues. Some functionality may be limited.")
+        print(f"Loaded {diagnostics['mapped_keys']} out of {diagnostics['model_keys']} parameters.")
+    
+    # Continue only if loading was at least partially successful
+    if diagnostics.get('mapped_keys', 0) == 0:
+        raise RuntimeError("Failed to load any model weights. Cannot continue.")
     
     # Run example
     if args.mode == "similarity":

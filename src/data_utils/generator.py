@@ -3,6 +3,11 @@ Dataset generation for text classification examples.
 
 This module generates and saves classification datasets with examples from
 four categories: Business, Sports, Science, and Technology.
+
+The datasets are saved to the project's data directory:
+- train.csv: Training dataset
+- val.csv: Validation dataset
+- test.csv: Test dataset
 """
 
 import pandas as pd

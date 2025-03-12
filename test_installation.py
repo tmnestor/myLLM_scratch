@@ -5,7 +5,7 @@ Simple test script to verify the package is working correctly.
 
 import torch
 from src.models import create_minilm_model
-from src.utils import get_tokenizer_for_model, load_pretrained_weights
+from src.utils import get_tokenizer_for_model, load_pretrained_weights, load_minilm_weights
 
 def test_sentence_similarity():
     """
@@ -23,9 +23,15 @@ def test_sentence_similarity():
                           "cpu")
     print(f"Using device: {device}")
     
-    # Load weights
+    # Load weights using specialized MiniLM loader
     print("Loading model weights...")
-    model = load_pretrained_weights(model, "all-MiniLM-L6-v2")
+    model, diagnostics = load_minilm_weights(model, "all-MiniLM-L6-v2")
+    
+    # Check loading diagnostics
+    if not diagnostics['success']:
+        print("Warning: Model weights loading had issues, but continuing for testing.")
+        print(f"Loaded {diagnostics['mapped_keys']} out of {diagnostics['model_keys']} parameters.")
+    
     model.to(device)
     
     # Sample sentences
