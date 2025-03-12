@@ -353,6 +353,376 @@ ModernBERT requires special handling for its architectural innovations:
   - Can handle significantly longer contexts (up to 8192 tokens)
   - More computationally intensive, but higher quality output
 
+## PyTorch Implementation Guide
+
+This codebase serves as a practical guide to implementing transformer architectures in PyTorch. Below we highlight key implementation patterns and techniques that can help others understand how to build efficient, modular transformer models.
+
+### Core PyTorch Patterns
+
+Throughout this codebase, we demonstrate several key PyTorch implementation patterns:
+
+1. **Module Composition**
+   ```python
+   class TransformerEncoder(nn.Module):
+       def __init__(self, config):
+           super().__init__()
+           self.layers = nn.ModuleList([
+               TransformerLayer(config) for _ in range(config.num_layers)
+           ])
+   ```
+
+2. **Tensor Manipulation**
+   ```python
+   # Reshaping for multi-head attention
+   def reshape_for_attention(x, batch_size, num_heads, head_dim):
+       # [batch_size, seq_len, hidden_size] -> [batch_size, seq_len, num_heads, head_dim]
+       x = x.view(batch_size, -1, num_heads, head_dim)
+       # [batch_size, seq_len, num_heads, head_dim] -> [batch_size, num_heads, seq_len, head_dim]
+       return x.permute(0, 2, 1, 3)
+   ```
+
+3. **Parameter Registration**
+   ```python
+   # Register learned parameters
+   self.query = nn.Linear(hidden_size, hidden_size)
+   
+   # Register non-learned buffers
+   self.register_buffer("cos_cached", cos_cached, persistent=False)
+   self.register_buffer("sin_cached", sin_cached, persistent=False)
+   ```
+
+4. **Using Einsum for Clean Tensor Operations**
+   ```python
+   # Using einsum for matrix multiplication with clear dimension labeling
+   attention_scores = torch.einsum('bhld,bhmd->bhlm', query, key)
+   ```
+
+### Implementing Rotary Position Embeddings (RoPE)
+
+Rotary Position Embeddings are a key innovation in ModernBERT. Below we explain the PyTorch implementation:
+
+```python
+class ModernBERTRotaryEmbedding(nn.Module):
+    def __init__(self, dim, max_seq_len=8192, base=10000):
+        super().__init__()
+        # Compute frequency bands
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+        
+        # Pre-compute cos and sin values for positions
+        t = torch.arange(max_seq_len, dtype=inv_freq.dtype)
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        
+        # Register as buffers (not parameters) since they're not learned
+        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+```
+
+The application of RoPE to query and key tensors is implemented as:
+
+```python
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None):
+    # Extract batch, sequence, and head dimensions
+    batch_size, seq_length, num_heads, head_dim = q.shape
+    
+    # Get cos and sin for specific positions if needed
+    if position_ids is not None:
+        cos = cos.index_select(2, position_ids)
+        sin = sin.index_select(2, position_ids)
+    
+    # Reshape tensors for efficient application
+    cos = cos[:, :, :seq_length]
+    sin = sin[:, :, :seq_length]
+    
+    # Apply rotary embeddings using complex number properties
+    # For even indices: q_even, q_odd = q[..., 0::2], q[..., 1::2]
+    # rotate: (q_even*cos - q_odd*sin, q_odd*cos + q_even*sin)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    
+    return q_embed, k_embed
+```
+
+Key PyTorch techniques demonstrated:
+
+1. **Efficient Parameter Registration**: We use `register_buffer` instead of `nn.Parameter` for the cos/sin values since they're not learned.
+2. **Einsum for Clear Tensor Operations**: Using `torch.einsum` makes the mathematical operations clearer.
+3. **Broadcasting**: PyTorch's broadcasting capabilities simplify applying the rotations to different batch elements.
+4. **Persistent Buffers**: Using `persistent=False` ensures these values don't get saved in the state dict.
+
+### Implementing Gated Linear Units (GLU)
+
+The GLU implementation in ModernBERT's feed-forward network shows several advanced PyTorch patterns:
+
+```python
+class ModernBERTMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        # Asymmetric MLP dimensions (common in modern architectures)
+        # Input projection is twice the intermediate size for the gate mechanism
+        self.intermediate_size = config.intermediate_size
+        
+        # Single projection that produces both gate and value paths
+        self.gate_proj = nn.Linear(self.hidden_size, 2 * self.intermediate_size, bias=False)
+        # Output projection back to hidden dimension
+        self.out_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+        
+        # Activation function for gating
+        self.act_fn = nn.SiLU()
+
+    def forward(self, hidden_states):
+        # Project to intermediate representation (twice the size for gating)
+        hidden_gelu = self.gate_proj(hidden_states)
+        
+        # Split into two equal halves for gate and value
+        hidden_act, hidden_linear = hidden_gelu.chunk(2, dim=-1)
+        
+        # Apply activation only to the gating half
+        hidden_act = self.act_fn(hidden_act)
+        
+        # Element-wise multiplication (gating mechanism)
+        hidden_states = hidden_act * hidden_linear
+        
+        # Project back to hidden dimension
+        hidden_states = self.out_proj(hidden_states)
+        
+        return hidden_states
+```
+
+Key PyTorch techniques demonstrated:
+
+1. **Tensor Chunking**: Using `chunk()` to efficiently split a tensor along a dimension.
+2. **Asymmetric Projections**: Creating different sized projections for input and output.
+3. **Element-wise Operations**: Using broadcast multiplication for the gating mechanism.
+4. **Efficient Parameter Usage**: Combining multiple projections into one larger projection when possible.
+
+### Attention Implementation with PyTorch
+
+The attention mechanism in ModernBERT showcases efficient PyTorch implementation:
+
+```python
+class ModernBERTAttention(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+        
+        # Combined QKV projection (more efficient than separate)
+        self.qkv_proj = nn.Linear(self.hidden_size, 3 * self.hidden_size, bias=False)
+        self.out_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        
+        # Rotary embeddings for positional information
+        self.rotary_emb = ModernBERTRotaryEmbedding(self.head_dim)
+        
+        # Attention scaling factor
+        self.scale = self.head_dim ** -0.5
+        
+    def forward(self, hidden_states, attention_mask=None):
+        batch_size, seq_length = hidden_states.shape[:2]
+        
+        # Combined QKV projection
+        qkv = self.qkv_proj(hidden_states)
+        
+        # Reshape and split into Q, K, V
+        qkv = qkv.view(batch_size, seq_length, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 1, 3, 4)
+        query, key, value = qkv[0], qkv[1], qkv[2]
+        
+        # Apply rotary embeddings
+        query, key = apply_rotary_pos_emb(
+            query, key, 
+            self.rotary_emb.cos_cached, 
+            self.rotary_emb.sin_cached
+        )
+        
+        # Calculate attention scores
+        attention_scores = torch.matmul(query, key.transpose(-1, -2)) * self.scale
+        
+        # Apply attention mask if provided
+        if attention_mask is not None:
+            attention_scores = attention_scores + attention_mask
+            
+        # Softmax normalization
+        attention_probs = F.softmax(attention_scores, dim=-1)
+        
+        # Compute context from attention and values
+        context = torch.matmul(attention_probs, value)
+        context = context.permute(0, 2, 1, 3).contiguous()
+        context = context.view(batch_size, seq_length, self.hidden_size)
+        
+        # Final projection
+        output = self.out_proj(context)
+        
+        return output
+```
+
+Key PyTorch techniques demonstrated:
+
+1. **Efficient Tensor Reshaping**: Using `view`, `permute`, and `transpose` for dimension manipulations.
+2. **Masked Operations**: Implementing attention masking using addition of mask values.
+3. **Batched Matrix Multiplication**: Using `torch.matmul` for efficient batched operations.
+4. **Memory Optimization**: Using `contiguous()` to ensure efficient memory layout after permutations.
+
+### PyTorch Optimizations for Training
+
+The codebase also demonstrates training optimizations in PyTorch:
+
+```python
+# Creating separate optimizer parameter groups
+encoder_params = [p for n, p in model.named_parameters() if "classifier" not in n]
+classifier_params = [p for n, p in model.named_parameters() if "classifier" in n]
+
+optimizer = torch.optim.AdamW([
+    {'params': encoder_params, 'lr': learning_rate},
+    {'params': classifier_params, 'lr': learning_rate * 5}  # Higher LR for classifier
+], weight_decay=0.01)
+
+# Learning rate scheduler with warmup
+scheduler = get_linear_schedule_with_warmup(
+    optimizer, 
+    num_warmup_steps=100, 
+    num_training_steps=num_epochs * len(train_dataloader)
+)
+```
+
+Key PyTorch techniques demonstrated:
+
+1. **Parameter Grouping**: Creating groups of parameters that receive different learning rates.
+2. **Named Parameters Access**: Using `named_parameters()` to filter parameters by name.
+3. **Custom Schedulers**: Implementing learning rate schedules with warmup periods.
+4. **Optimizer Configuration**: Setting weight decay and other hyperparameters appropriately.
+
+### Efficient Weight Loading with PyTorch
+
+The weight loading mechanism shows advanced PyTorch state_dict handling:
+
+```python
+# Loading weights with verification
+def load_pretrained_weights(model, pretrained_model_name):
+    # Load pretrained weights
+    state_dict = torch.load(f"pretrained/{pretrained_model_name}.safetensors")
+    
+    # Map weights based on architecture type
+    if "modernbert" in pretrained_model_name:
+        mapped_weights = map_modernbert_weights(state_dict, model.state_dict())
+    else:
+        mapped_weights = map_minilm_weights(state_dict, model.state_dict())
+    
+    # Load weights and verify
+    missing, unexpected = model.load_state_dict(mapped_weights, strict=False)
+    
+    # Calculate loading stats
+    total_params = len(model.state_dict())
+    loaded_params = total_params - len(missing)
+    print(f"Loaded {loaded_params}/{total_params} parameters ({loaded_params/total_params:.1%})")
+    
+    return model
+```
+
+Key PyTorch techniques demonstrated:
+
+1. **State Dict Manipulation**: Working with model state dictionaries to map weights.
+2. **Non-strict Loading**: Using `strict=False` to handle partial weight loading.
+3. **Loading Verification**: Checking missing and unexpected keys for debugging.
+4. **Architecture-specific Handling**: Custom mapping functions for different architectures.
+
+## Mathematical Background
+
+Understanding the mathematical foundations behind the architectural innovations is key to properly implementing them in PyTorch.
+
+### RoPE: Rotary Position Embedding Mathematics
+
+Rotary Position Embeddings (RoPE) encode absolute positional information into query and key vectors via rotation matrices. The mathematical formulation is as follows:
+
+1. **Rotation in 2D Space**:
+   For each pair of adjacent dimensions (2d, 2d+1) in the embedding, we apply a rotation based on position:
+
+   ```
+   [x_{2d}, x_{2d+1}] → [x_{2d}cos(mθ) - x_{2d+1}sin(mθ), x_{2d}sin(mθ) + x_{2d+1}cos(mθ)]
+   ```
+
+   Where:
+   - m is the position in the sequence
+   - θ is the base rotation angle calculated as θ_d = 10000^(-2d/D)
+   - D is the total embedding dimension
+
+2. **Frequency Calculation**:
+   The base frequencies are calculated as:
+   
+   ```
+   f_d = 1/10000^(2d/D)
+   ```
+   
+   This creates a geometric sequence of frequencies, similar to sinusoidal position embeddings but applied through rotation.
+
+3. **Complex Number Representation**:
+   The rotation can be viewed as multiplying by a complex number e^(imθ):
+   
+   ```
+   (x_{2d} + ix_{2d+1}) × e^(imθ) = (x_{2d} + ix_{2d+1})(cos(mθ) + isin(mθ))
+   ```
+   
+   In our PyTorch implementation, we decompose this complex multiplication into real-valued operations.
+
+4. **Relative Position Properties**:
+   When computing attention scores, RoPE preserves relative position information:
+   
+   ```
+   q_m·k_n = ReΦ(q_m)ᵀReΦ(k_n) = g(m-n, q, k)
+   ```
+   
+   Where Φ is the rotary encoding function. This means that the attention score between positions m and n depends only on their relative distance (m-n).
+
+### GLU: Gated Linear Units Mathematics
+
+Gated Linear Units (GLU) replace traditional feed-forward networks with a gated architecture. The mathematical formulation is:
+
+1. **Traditional FFN**:
+   ```
+   FFN(x) = Activation(xW₁ + b₁)W₂ + b₂
+   ```
+
+2. **GLU Architecture**:
+   ```
+   GLU(x) = (xW_a ⊙ σ(xW_g))W_o + b_o
+   ```
+   
+   Where:
+   - W_a is the value projection
+   - W_g is the gate projection
+   - σ is an activation function (often SiLU/Swish)
+   - ⊙ is element-wise multiplication
+
+3. **Combined Input Projection**:
+   For efficiency, many implementations combine W_a and W_g into a single larger matrix W_i:
+   
+   ```
+   [xW_a, xW_g] = xW_i
+   ```
+   
+   Then we split the result and apply the activation to only one part.
+
+4. **SiLU/Swish Activation**:
+   ```
+   SiLU(x) = x * sigmoid(x) = x * (1 / (1 + e^(-x)))
+   ```
+   
+   This activation function has properties that work well with the gating mechanism.
+
+5. **Asymmetric Dimensions**:
+   In ModernBERT, the intermediate size (dimension of W_a and W_g outputs) is larger than both input and output:
+   
+   ```
+   x ∈ ℝᵈ → W_i ∈ ℝᵈˣ²ʰ → split → W_a(x), W_g(x) ∈ ℝʰ → gate → W_o ∈ ℝʰᵏ → out ∈ ℝᵏ
+   ```
+   
+   Where typically d = k = 768 and h = 1152 (or 2304 for the combined projection).
+
+The effectiveness of GLU comes from its ability to dynamically control information flow through the network by learning which information to retain through the gating mechanism.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
