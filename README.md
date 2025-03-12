@@ -660,7 +660,9 @@ Understanding the mathematical foundations behind the architectural innovations 
 
 ### RoPE: Rotary Position Embedding Mathematics
 
-Rotary Position Embeddings (RoPE) encode absolute positional information into query and key vectors via rotation matrices. The mathematical formulation is as follows:
+Rotary Position Embeddings (RoPE) encode absolute positional information into query and key vectors via rotation matrices. This is a key innovation in ModernBERT compared to traditional transformers that use additive position embeddings.
+
+#### Mathematical Formulation
 
 1. **Rotation in 2D Space**:
    For each pair of adjacent dimensions (2d, 2d+1) in the embedding, we apply a rotation based on position:
@@ -701,16 +703,63 @@ Rotary Position Embeddings (RoPE) encode absolute positional information into qu
    
    Where Φ is the rotary encoding function. This means that the attention score between positions m and n depends only on their relative distance (m-n).
 
+#### Implementation Details in ModernBERT
+
+In our ModernBERT implementation, the RoPE process involves:
+
+1. **Compute Frequency Matrix**:
+   ```python
+   # Calculate inverse frequency bands for efficiency (compute once, use many times)
+   inv_freq = 1.0 / (10000.0 ** (torch.arange(0, dim, 2).float() / dim))
+   
+   # Compute position-dependent frequencies by outer product with position ids
+   freqs = torch.outer(position_ids.float(), inv_freq)
+   
+   # Create embeddings with sin and cos values
+   emb = torch.cat((freqs, freqs), dim=-1)
+   cos = emb.cos()  # Cosine part
+   sin = emb.sin()  # Sine part
+   ```
+
+2. **Apply Rotation to Query and Key** (but not Value vectors):
+   ```python
+   # Split vectors into even and odd dimensions
+   q_even, q_odd = q[..., 0::2], q[..., 1::2]
+   k_even, k_odd = k[..., 0::2], k[..., 1::2]
+   
+   # Apply rotation: [x_even, x_odd] -> [x_even*cos - x_odd*sin, x_odd*cos + x_even*sin]
+   q_rotated[..., 0::2] = q_even * cos - q_odd * sin
+   q_rotated[..., 1::2] = q_odd * cos + q_even * sin
+   k_rotated[..., 0::2] = k_even * cos - k_odd * sin
+   k_rotated[..., 1::2] = k_odd * cos + k_even * sin
+   ```
+
+#### Advantages of RoPE in ModernBERT
+
+1. **Extrapolation to Longer Sequences**: RoPE embeddings allow the model to better generalize to sequence lengths longer than those seen during training.
+
+2. **Preserves Relative Positions**: The mathematics of RoPE ensures that attention scores inherently preserve information about relative positions between tokens.
+
+3. **No Separate Position Embeddings**: Since position information is encoded directly in the attention mechanism, we don't need separate position embedding parameters.
+
+4. **Efficiency**: RoPE has a lightweight implementation using rotation matrices rather than requiring a full learned embedding table.
+
+5. **Locality Bias**: RoPE naturally encourages more attention to nearby tokens since the rotation increases with position distance.
+
 ### GLU: Gated Linear Units Mathematics
 
-Gated Linear Units (GLU) replace traditional feed-forward networks with a gated architecture. The mathematical formulation is:
+Gated Linear Units (GLU) replace traditional feed-forward networks with a gated architecture, representing another key innovation in ModernBERT. This approach enables more dynamic feature interactions and typically improves model performance.
 
-1. **Traditional FFN**:
+#### Mathematical Comparison
+
+1. **Traditional FFN** (as in original BERT and many other transformers):
    ```
    FFN(x) = Activation(xW₁ + b₁)W₂ + b₂
    ```
+   
+   This is a simple two-layer network with a non-linearity in between.
 
-2. **GLU Architecture**:
+2. **GLU Architecture** (as used in ModernBERT):
    ```
    GLU(x) = (xW_a ⊙ σ(xW_g))W_o + b_o
    ```
@@ -718,35 +767,100 @@ Gated Linear Units (GLU) replace traditional feed-forward networks with a gated 
    Where:
    - W_a is the value projection
    - W_g is the gate projection
-   - σ is an activation function (often SiLU/Swish)
+   - σ is an activation function (GELU in original BERT, SiLU/Swish in ModernBERT)
    - ⊙ is element-wise multiplication
 
-3. **Combined Input Projection**:
-   For efficiency, many implementations combine W_a and W_g into a single larger matrix W_i:
+#### Implementation Details in ModernBERT
+
+1. **Combined Input Projection**:
+   For efficiency, ModernBERT combines W_a and W_g into a single larger matrix W_i:
    
-   ```
-   [xW_a, xW_g] = xW_i
+   ```python
+   # Single larger matrix (2x intermediate_size) for both gate and value paths
+   self.Wi = nn.Linear(hidden_size, intermediate_size * 2, bias=mlp_bias)
+   
+   # Forward pass: project and then split
+   input_and_gate = self.Wi(hidden_states)
+   input_tensor, gate_tensor = input_and_gate.chunk(2, dim=-1)
    ```
    
-   Then we split the result and apply the activation to only one part.
+   This reduces the number of matrix multiplications and can be more efficient in some hardware configurations.
+
+2. **Activation and Gating**:
+   In ModernBERT, we apply activation only to the input path, then multiply by the gate path:
+   
+   ```python
+   # Apply activation only to input tensor
+   activated_input = self.act(input_tensor)
+   
+   # Element-wise multiply with gate (gating mechanism)
+   gated_output = activated_input * gate_tensor
+   ```
+
+3. **Special Case: No Bias Terms**:
+   ModernBERT uses bias=False in linear projections, which differs from traditional transformers:
+   
+   ```python
+   self.Wi = nn.Linear(hidden_size, intermediate_size * 2, bias=False)
+   self.Wo = nn.Linear(intermediate_size, hidden_size, bias=False)
+   ```
 
 4. **SiLU/Swish Activation**:
+   ModernBERT uses SiLU (Sigmoid Linear Unit) activation:
    ```
    SiLU(x) = x * sigmoid(x) = x * (1 / (1 + e^(-x)))
    ```
    
-   This activation function has properties that work well with the gating mechanism.
+   This activation function provides a smooth gating mechanism, allowing a more nuanced mix of features.
 
 5. **Asymmetric Dimensions**:
-   In ModernBERT, the intermediate size (dimension of W_a and W_g outputs) is larger than both input and output:
+   In ModernBERT, the intermediate size (dimension of intermediate activations) is typically larger than both input and output dimensions:
    
    ```
-   x ∈ ℝᵈ → W_i ∈ ℝᵈˣ²ʰ → split → W_a(x), W_g(x) ∈ ℝʰ → gate → W_o ∈ ℝʰᵏ → out ∈ ℝᵏ
+   x ∈ ℝᵈ → W_i ∈ ℝᵈˣ²ʰ → split → input, gate ∈ ℝʰ → gate → W_o ∈ ℝʰᵏ → out ∈ ℝᵏ
    ```
    
-   Where typically d = k = 768 and h = 1152 (or 2304 for the combined projection).
+   Where typically d = k = 768 and h = 1152 (meaning Wi produces a 2304-dimensional output that is then split).
 
-The effectiveness of GLU comes from its ability to dynamically control information flow through the network by learning which information to retain through the gating mechanism.
+#### Advantages of GLU in ModernBERT
+
+1. **Improved Gradient Flow**: The multiplicative gating allows for better gradient flow during training.
+
+2. **Adaptive Feature Selection**: GLU can dynamically emphasize or suppress different features based on the input.
+
+3. **Dynamic Capacity**: The gate allows the network to adaptively adjust its effective capacity based on input complexity.
+
+4. **Enhanced Information Flow Control**: By learning which information to retain through the gating mechanism, GLU enables more selective information propagation.
+
+5. **Better Convergence**: Models with GLU often train faster and achieve better final performance compared to standard feed-forward networks.
+
+### PyTorch Implementation Example
+
+Here's how the GLU mechanism is implemented in our ModernBERT code:
+
+```python
+class ModernBERTMLP(nn.Module):
+    def __init__(self, hidden_size=768, intermediate_size=1152):
+        super().__init__()
+        # Input projection produces TWICE the intermediate size (for input and gate)
+        self.Wi = nn.Linear(hidden_size, intermediate_size * 2, bias=False)
+        # Activation function (SiLU/Swish is x * sigmoid(x))
+        self.act = nn.SiLU()  # or nn.GELU() in some variants
+        # Output projection
+        self.Wo = nn.Linear(intermediate_size, hidden_size, bias=False)
+        
+    def forward(self, hidden_states):
+        # Project to input and gate, then split
+        projected = self.Wi(hidden_states)
+        input_tensor, gate_tensor = projected.chunk(2, dim=-1)
+        # Apply activation to input and multiply by gate
+        hidden_states = self.act(input_tensor) * gate_tensor
+        # Project back to hidden dimension
+        output = self.Wo(hidden_states)
+        return output
+```
+
+The effectiveness of GLU comes from its ability to dynamically control information flow through the network, allowing it to adapt to different inputs and learn more complex functions.
 
 ## License
 

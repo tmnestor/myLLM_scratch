@@ -176,10 +176,30 @@ def apply_rotary_embedding(q, k, cos, sin):
 
 class ModernBERTAttention(nn.Module):
     """
-    Attention module for ModernBERT.
+    Attention module for ModernBERT with Rotary Position Embeddings.
     
-    Uses a single matrix for query, key, value projections (Wqkv),
-    applies rotary position embeddings, and has a separate output projection (Wo).
+    This implementation follows the architecture described in the ModernBERT paper
+    (Warner et al., 2024), which differs from traditional transformer attention in several ways:
+    
+    1. Combined QKV Projection: Uses a single matrix for query, key, value projections (Wqkv)
+       instead of three separate projections. This reduces parameter count and can be more
+       efficient for computation.
+    
+    2. Rotary Position Embeddings (RoPE): Instead of adding absolute position embeddings to the
+       token embeddings, applies rotation matrices directly to query and key vectors within the
+       attention mechanism. This allows better extrapolation to longer sequences than seen during
+       training.
+    
+    3. No Bias Terms: Omits bias terms in the linear projections, which can improve training
+       stability and reduce parameter count.
+    
+    4. Attention Scaling: Applies scaling by 1/sqrt(head_dim) to the query vectors before
+       computing attention scores to stabilize training.
+    
+    The attention computation follows the standard scaled dot-product attention:
+    Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) * V
+    
+    Where Q, K, V are derived from a single projection and then have rotary embeddings applied.
     """
     
     def __init__(
@@ -189,6 +209,16 @@ class ModernBERTAttention(nn.Module):
         attention_dropout=0.0,
         max_position_embeddings=8192,
     ):
+        """
+        Initialize ModernBERT attention module.
+        
+        Args:
+            hidden_size (int): Size of hidden dimension (default: 768)
+            num_attention_heads (int): Number of attention heads (default: 12)
+            attention_dropout (float): Dropout probability for attention weights (default: 0.0)
+            max_position_embeddings (int): Maximum sequence length supported (default: 8192)
+                This affects the size of the rotary embedding cache.
+        """
         super().__init__()
         self.hidden_size = hidden_size
         self.num_heads = num_attention_heads
@@ -198,31 +228,47 @@ class ModernBERTAttention(nn.Module):
         if self.head_dim * num_attention_heads != hidden_size:
             raise ValueError(f"hidden_size {hidden_size} not divisible by num_heads {num_attention_heads}")
         
-        # Combined QKV projection
+        # Combined QKV projection - produces 3 vectors (Q, K, V) for each token
+        # Note: no bias terms are used in ModernBERT linear projections
         self.Wqkv = nn.Linear(hidden_size, 3 * hidden_size, bias=False)
         
-        # Output projection
+        # Output projection - maps attention output back to hidden_size
         self.Wo = nn.Linear(hidden_size, hidden_size, bias=False)
         
-        # Rotary position embeddings
+        # Rotary position embeddings - specialized positional encoding
+        # Uses rotation matrices applied directly to query and key vectors
         self.rotary_emb = ModernBERTRotaryEmbedding(
             dim=self.head_dim,
             max_position_embeddings=max_position_embeddings
         )
         
+        # Dropout applied to attention weights (not to attention output)
         self.attention_dropout = nn.Dropout(attention_dropout)
     
     def forward(self, hidden_states, attention_mask=None, position_ids=None):
         """
         Forward pass through attention layer with rotary position embeddings.
         
+        Process flow:
+        1. Project inputs to get query, key, value vectors using a combined QKV projection
+        2. Reshape projections and split into separate Q, K, V tensors
+        3. Apply rotary position embeddings to query and key vectors (but not value vectors)
+        4. Scale queries by 1/sqrt(head_dim)
+        5. Compute attention scores (dot product of query and key)
+        6. Apply attention mask if provided
+        7. Apply softmax and dropout to get attention probabilities
+        8. Apply attention probabilities to values to get weighted sum
+        9. Reshape the result and apply output projection
+        
         Args:
-            hidden_states: Input of shape [batch_size, seq_length, hidden_size]
-            attention_mask: Mask of shape [batch_size, 1, 1, seq_length] (optional)
-            position_ids: Position indices for tokens (optional)
+            hidden_states: Input tensor of shape [batch_size, seq_length, hidden_size]
+            attention_mask: Attention mask tensor of shape [batch_size, 1, 1, seq_length] 
+                           with values -inf for masked positions and 0 for unmasked (optional)
+            position_ids: Tensor of position indices of shape [batch_size, seq_length] 
+                         for custom position IDs in rotary embeddings (optional)
             
         Returns:
-            Output after attention and output projection
+            Tensor of shape [batch_size, seq_length, hidden_size] after self-attention
         """
         batch_size, seq_length, _ = hidden_states.size()
         
