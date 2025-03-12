@@ -761,3 +761,4 @@ The ModernBERT architecture implementation in this project is based on:
 * **GitHub Repository**: [answerdotai/modernbert](https://github.com/answerdotai/modernbert)
 
 We extend our gratitude to the authors for their pioneering work on the ModernBERT architecture, which incorporates key improvements such as Rotary Position Embeddings (RoPE), Gated Linear Units (GLU), pre-layer normalization, and other modern transformer optimizations.
+
