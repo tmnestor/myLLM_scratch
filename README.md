@@ -751,3 +751,13 @@ The effectiveness of GLU comes from its ability to dynamically control informati
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgements
+
+The ModernBERT architecture implementation in this project is based on:
+
+* **Paper**: Warner, Benjamin, Antoine Chaffin, Benjamin Clavié, Orion Weller, Oskar Hallström, Said Taghadouini, Alexis Gallagher et al. "Smarter, better, faster, longer: A modern bidirectional encoder for fast, memory efficient, and long context finetuning and inference." arXiv preprint arXiv:2412.13663 (2024).
+
+* **GitHub Repository**: [answerdotai/modernbert](https://github.com/answerdotai/modernbert)
+
+We extend our gratitude to the authors for their pioneering work on the ModernBERT architecture, which incorporates key improvements such as Rotary Position Embeddings (RoPE), Gated Linear Units (GLU), pre-layer normalization, and other modern transformer optimizations.
