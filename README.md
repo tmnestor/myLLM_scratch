@@ -21,7 +21,7 @@ MiniLM follows a traditional transformer design with several optimizations for e
 ```mermaid
 graph TD
     Input([Input Tokens]) --> TokenEmbed[Token Embeddings]
-    TokenEmbed --> AddPos[+ Position Embeddings]
+    TokenEmbed --> AddPos[Position Embeddings]
     AddPos --> LayerNorm[Layer Normalization]
     LayerNorm --> Encoder[Encoder Blocks]
     Encoder --> Pooling[Pooling Layer]
@@ -30,11 +30,11 @@ graph TD
     subgraph EncoderBlock["Encoder Block (x3/6/12)"]
         AttnNorm[Layer Normalization] --> SelfAttention[Multi-Head Self Attention]
         SelfAttention --> AttnDrop[Dropout]
-        AttnDrop --> AttnResid[+ Residual Connection]
+        AttnDrop --> AttnResid[Residual Connection]
         AttnResid --> FFNNorm[Layer Normalization]
         FFNNorm --> FFN[Feed-Forward Network]
         FFN --> FFNDrop[Dropout]
-        FFNDrop --> FFNResid[+ Residual Connection]
+        FFNDrop --> FFNResid[Residual Connection]
     end
 
     subgraph Attention["Multi-Head Self Attention"]
@@ -71,10 +71,10 @@ graph TD
 
     subgraph ModernBlock["Encoder Block (x12)"]
         PreLN1[Pre-Layer Normalization] --> RoPEAttn[Rotary Position Attention]
-        RoPEAttn --> AttnResid[+ Residual Connection]
+        RoPEAttn --> AttnResid[Residual Connection]
         AttnResid --> PreLN2[Pre-Layer Normalization]
         PreLN2 --> GLU[Gated MLP with GLU]
-        GLU --> MLPResid[+ Residual Connection]
+        GLU --> MLPResid[Residual Connection]
     end
 
     subgraph RoPEAttention["Rotary Position Attention"]
