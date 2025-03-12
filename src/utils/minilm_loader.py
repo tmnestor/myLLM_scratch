@@ -509,8 +509,9 @@ def load_minilm_weights(model, weights_path):
         for comp, count in sorted(missing_by_component.items(), key=lambda x: x[1], reverse=True):
             print(f"  - {comp}: {count}")
     
-    # Load the weights
-    model.load_state_dict(mapped_weights, strict=False)
+    # Load the weights with strict=True
+    model.load_state_dict(mapped_weights, strict=True)
+    print("Successfully loaded weights with strict=True")
     
     # Create diagnostics
     success = mapping_percentage > 95  # Success if we mapped at least 95% of parameters

@@ -89,8 +89,9 @@ def load_modernbert_weights(model, weights_path):
             # Map weights correctly
             mapped_weights = map_modernbert_weights(state_dict, model)
             
-            # Load the mapped weights
-            missing_keys, unexpected_keys = model.load_state_dict(mapped_weights, strict=False)
+            # Load the mapped weights with strict=True
+            missing_keys, unexpected_keys = model.load_state_dict(mapped_weights, strict=True)
+            print("Successfully loaded weights with strict=True")
             
             # Report statistics
             model_keys = set(model.state_dict().keys())
@@ -149,8 +150,9 @@ def load_modernbert_weights(model, weights_path):
     # For PyTorch format (fallback)
     mapped_weights = map_modernbert_weights(state_dict, model)
     
-    # Load the mapped weights
-    missing_keys, unexpected_keys = model.load_state_dict(mapped_weights, strict=False)
+    # Load the mapped weights with strict=True
+    missing_keys, unexpected_keys = model.load_state_dict(mapped_weights, strict=True)
+    print("Successfully loaded weights with strict=True")
     
     # Report statistics
     model_keys = set(model.state_dict().keys())

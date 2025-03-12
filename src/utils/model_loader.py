@@ -156,8 +156,9 @@ def load_pretrained_weights(model, weights_path):
                                 is_sentence_transformers=is_sentence_transformers,
                                 is_huggingface=is_huggingface)
     
-    # Load mapped weights
-    model.load_state_dict(mapped_weights, strict=False)
+    # Load mapped weights with strict=True
+    model.load_state_dict(mapped_weights, strict=True)
+    print("Successfully loaded weights with strict=True")
     
     # Report success and any potential issues
     model_keys = set(model.state_dict().keys())
